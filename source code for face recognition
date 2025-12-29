@@ -1,0 +1,134 @@
+!pip install -q kaggle opencv-python scikit-learn streamlit joblib pyngrok
+from google.colab import files
+files.upload()   # upload kaggle.json
+!mkdir -p ~/.kaggle
+!cp kaggle.json ~/.kaggle/
+!chmod 600 ~/.kaggle/kaggle.json
+!kaggle datasets download -d jessicali9530/lfw-dataset
+!unzip -q lfw-dataset.zip
+
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, confusion_matrix
+
+X = []
+y = []
+label_map = {}
+label_id = 0
+
+dataset_path = "lfw-deepfunneled/lfw-deepfunneled"
+
+for person in os.listdir(dataset_path):
+    person_path = os.path.join(dataset_path, person)
+    if not os.path.isdir(person_path):
+        continue
+
+    label_map[label_id] = person
+
+    for img_name in os.listdir(person_path):
+        img_path = os.path.join(person_path, img_name)
+
+        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            continue
+
+        img = cv2.resize(img, (64, 64))
+        img = img / 255.0
+
+        X.append(img.flatten())
+        y.append(label_id)
+
+    label_id += 1
+
+X = np.array(X)
+y = np.array(y)
+
+print("Total images:", X.shape[0])
+print("Total people:", len(label_map))
+unique_labels, counts = np.unique(y, return_counts=True)
+single_sample_labels = unique_labels[counts == 1]
+
+mask = ~np.isin(y, single_sample_labels)
+
+X = X[mask]
+y = y[mask]
+
+print("After filtering:")
+print("Images:", X.shape[0])
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+model = SVC(kernel='linear', C=1, probability=True)
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+sample = X_test[0].reshape(64, 64)
+plt.imshow(sample, cmap="gray")
+plt.title(f"Predicted Person: {label_map[y_pred[0]]}")
+plt.axis("off")
+plt.show()
+import joblib
+
+joblib.dump(model, "face_model.pkl")
+np.save("label_map.npy", label_map)
+
+print("✅ Model & labels saved")
+%%writefile app.py
+import streamlit as st
+import cv2
+import numpy as np
+import joblib
+
+model = joblib.load("face_model.pkl")
+label_map = np.load("label_map.npy", allow_pickle=True).item()
+
+st.set_page_config(page_title="Face Recognition App")
+
+st.title("🧑 Face Recognition Web App")
+st.write("Upload a face image to identify the person")
+
+uploaded_file = st.file_uploader(
+    "Upload Image",
+    type=["jpg", "jpeg", "png"]
+)
+
+if uploaded_file:
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
+
+    if img is not None:
+        img = cv2.resize(img, (64, 64))
+        img_norm = img / 255.0
+        img_flat = img_norm.reshape(1, -1)
+
+        pred = model.predict(img_flat)[0]
+        confidence = model.predict_proba(img_flat).max()
+
+        st.image(img, caption="Uploaded Image", width=200)
+        st.success(f"Predicted Person: **{label_map[pred]}**")
+        st.info(f"Confidence: {confidence:.2f}")
+from pyngrok import ngrok
+
+ngrok.set_auth_token("30VFdZQO8VFlbyWZc0X7hDjzvBS_4HWuYSgsT6QhjFGn9zYMw")
+
+!streamlit run app.py & ngrok http 8501
+this my my full code can you create a ready to push github repo
+
+
+
+
+
+
+
+
+
+
